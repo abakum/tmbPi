@@ -6,6 +6,7 @@ require (
 	github.com/abakum/gozodiac v0.0.0-20230421061758-fa2f82ab0d93
 	github.com/mymmrac/telego v0.25.1
 	golang.ngrok.com/ngrok v1.3.1
+	golang.org/x/net v0.11.0
 )
 
 require (
@@ -21,7 +22,6 @@ require (
 	github.com/onsi/gomega v1.27.8 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.ngrok.com/muxado/v2 v2.0.0 // indirect
-	golang.org/x/net v0.11.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
 	golang.org/x/sys v0.10.0 // indirect
 	golang.org/x/term v0.9.0 // indirect

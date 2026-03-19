@@ -58,8 +58,7 @@ func main() {
 	}
 	li.Println(filepath.FromSlash(tmbPingJson))
 
-	bot, err = tg.NewBot(os.Getenv("TOKEN"), tg.WithLogger(tg.Logger(Logger{}))) // tg.WithDefaultDebugLogger()
-	// bot, err = tg.NewBot(os.Getenv("TOKEN"))
+	bot, err = CreateBotWithProxy(os.Getenv("TOKEN"))
 
 	if err != nil {
 		if errors.Is(err, tg.ErrInvalidToken) {
