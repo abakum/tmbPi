@@ -33,35 +33,47 @@ func CreateBotWithProxy(token string) (*tg.Bot, error) {
 		proxyEnv = os.Getenv("SOCKS5_PROXY")
 	}
 
-	// Если прокси не указан, создаем обычного бота
-	if proxyEnv == "" {
+	// Проверяем переменную окружения для API URL
+	apiURL := os.Getenv("TMB_URL")
+
+	// Собираем опции для создания бота
+	options := []tg.BotOption{tg.WithLogger(tg.Logger(Logger{}))}
+
+	// Если API URL указан, добавляем опцию
+	if apiURL != "" {
+		fmt.Printf("%s\n", fmt.Sprintf(dic.add(ul,
+			"en:Using custom API URL: %s",
+			"ru:Использую кастомный API URL: %s",
+		), apiURL))
+		options = append(options, tg.WithAPIServer(apiURL))
+	}
+
+	// Если прокси указан, добавляем HTTP клиент
+	if proxyEnv != "" {
+		// Парсим строку прокси (ожидается формат: socks5://127.0.0.1:1080)
+		fmt.Printf("%s\n", fmt.Sprintf(dic.add(ul,
+			"en:Using proxy: %s",
+			"ru:Использую прокси: %s",
+		), proxyEnv))
+
+		// Создаем HTTP клиент с прокси
+		httpClient, err := createHTTPClientWithProxy(proxyEnv)
+		if err != nil {
+			return nil, Errorf(dic.add(ul,
+				"en:failed to create HTTP client with proxy: %w",
+				"ru:ошибка создания HTTP клиента с прокси: %w",
+			), err)
+		}
+		options = append(options, tg.WithHTTPClient(httpClient))
+	} else {
 		fmt.Printf("%s\n", dic.add(ul,
 			"en:Proxy not specified, creating bot without proxy",
 			"ru:Прокси не указан, создаю бота без прокси",
 		))
-		return tg.NewBot(token, tg.WithLogger(tg.Logger(Logger{})))
 	}
 
-	// Парсим строку прокси (ожидается формат: socks5://127.0.0.1:1080)
-	fmt.Printf("%s\n", fmt.Sprintf(dic.add(ul,
-		"en:Using proxy: %s",
-		"ru:Использую прокси: %s",
-	), proxyEnv))
-
-	// Создаем HTTP клиент с прокси
-	httpClient, err := createHTTPClientWithProxy(proxyEnv)
-	if err != nil {
-		return nil, Errorf(dic.add(ul,
-			"en:failed to create HTTP client with proxy: %w",
-			"ru:ошибка создания HTTP клиента с прокси: %w",
-		), err)
-	}
-
-	// Создаем бота с кастомным HTTP клиентом
-	return tg.NewBot(token,
-		tg.WithHTTPClient(httpClient),
-		tg.WithLogger(tg.Logger(Logger{})),
-	)
+	// Создаем бота с собранными опциями
+	return tg.NewBot(token, options...)
 }
 
 // createHTTPClientWithProxy создает HTTP клиент с поддержкой SOCKS5 прокси
