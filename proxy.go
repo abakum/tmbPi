@@ -131,7 +131,7 @@ func createHTTPClientWithProxy(proxyStr string) (*http.Client, error) {
 	// Создаем HTTP клиент
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   30 * time.Second,
+		Timeout:   refresh,
 	}
 
 	return client, nil
