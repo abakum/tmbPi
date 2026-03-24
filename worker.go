@@ -67,8 +67,7 @@ func worker(ip string, ch cCustomer) {
 								ltf.Println("bot.DeleteMessage", cu)
 								re := cu.Reply
 								if re != nil {
-									// bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
-									bot.DeleteMessage(tu.Delete(tu.ID(re.Chat.ID), re.MessageID))
+									bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
 								}
 							}
 							return
@@ -103,18 +102,20 @@ func worker(ip string, ch cCustomer) {
 				ltf.Println(i, fcRfRc(cu.Tm), ip, fcRfRc(re), status, statusOld)
 				if re == nil || status != statusOld {
 					if re != nil {
-						// bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
-						bot.DeleteMessage(tu.Delete(tu.ID(re.Chat.ID), re.MessageID))
+						bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
 					}
 					ikbsf = 0
 					if !chats.allowed(tf(cu.Tm.Chat.Type == "private", cu.Tm.From.ID, cu.Tm.Chat.ID)) {
 						ikbsf = len(ikbs) - 1
 					}
-					cus[i].Reply, err = bot.SendMessage(tu.MessageWithEntities(tu.ID(cu.Tm.Chat.ID),
+					params := tu.MessageWithEntities(tu.ID(cu.Tm.Chat.ID),
 						tu.Entity(status),
 						tu.Entity(ip).Code(),
 						tu.Entity("⚡").TextLink(tl),
-					).WithReplyToMessageID(cu.Tm.MessageID).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(ikbs[ikbsf:]...))))
+					)
+					params.ReplyParameters = &tg.ReplyParameters{MessageID: cu.Tm.MessageID}
+					params.ReplyMarkup = tu.InlineKeyboard(tu.InlineKeyboardRow(ikbs[ikbsf:]...))
+					cus[i].Reply, err = bot.SendMessage(params)
 					if err != nil {
 						letf.Println("delete", ip)
 						ips.del(ip, false)

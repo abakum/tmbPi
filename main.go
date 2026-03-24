@@ -160,7 +160,7 @@ func startH(bot *tg.Bot) (*th.BotHandler, error) {
 		return nil, srcError(err)
 	}
 
-	bh, err := th.NewBotHandler(bot, updates, th.WithStopTimeout(time.Second*8))
+	bh, err := th.NewBotHandler(bot, updates)
 	if err != nil {
 		return nil, srcError(err)
 	}
@@ -209,10 +209,16 @@ func bhAnyWithMatch(bot *tg.Bot, update tg.Update) {
 			}
 		}
 		if len(news) > 1 {
-			bot.SendMessage(tu.MessageWithEntities(tu.ID(ctm.Chat.ID),
+			params := tu.MessageWithEntities(tu.ID(ctm.Chat.ID),
 				tu.Entity("/"+strings.TrimRight(news, " ")).Code(),
 				tu.Entity(ups),
-			).WithReplyToMessageID(ctm.MessageID).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(ikbs[ikbsf:]...))))
+			)
+			params.ReplyParameters = &tg.ReplyParameters{MessageID: ctm.MessageID}
+			params.ReplyMarkup = tu.InlineKeyboard(tu.InlineKeyboardRow(ikbs[ikbsf:]...))
+			_, err := bot.SendMessage(params)
+			if err != nil {
+				let.Println(err)
+			}
 		}
 		return
 	}
@@ -250,7 +256,12 @@ func bhEasterEgg(bot *tg.Bot, update tg.Update) {
 			if len(entitys) > le {
 				entitys[len(entitys)-1] = entitys[len(entitys)-1].Spoiler()
 			}
-			bot.SendMessage(tu.MessageWithEntities(tu.ID(ctm.Chat.ID), entitys...).WithReplyToMessageID(ctm.MessageID))
+			params := tu.MessageWithEntities(tu.ID(ctm.Chat.ID), entitys...)
+			params.ReplyParameters = &tg.ReplyParameters{MessageID: ctm.MessageID}
+			_, err := bot.SendMessage(params)
+			if err != nil {
+				let.Println(err)
+			}
 		}
 	}
 }
@@ -265,34 +276,37 @@ func bhAnyCallbackQueryWithMessage(bot *tg.Bot, update tg.Update) {
 	if tm == nil {
 		return
 	}
-	my := true
-	if tm.Chat.Type != "private" && tm.ReplyToMessage != nil {
-		my = uc.From.ID == tm.ReplyToMessage.From.ID
+	if !tm.IsAccessible() {
+		return
 	}
-	ip := reIP.FindString(tm.Text)
+	message := tm.(*tg.Message)
+	my := true
+	if message.Chat.Type != "private" && message.ReplyToMessage != nil {
+		my = uc.From.ID == message.ReplyToMessage.From.ID
+	}
+	ip := reIP.FindString(message.Text)
 	Data := update.CallbackQuery.Data
 	if strings.HasPrefix(Data, "…") {
 		ip = ""
 	}
-	ups := fmt.Sprintf("%s %s @%s #%d%s", uc.From.FirstName, uc.From.LastName, uc.From.Username, uc.From.ID, notAllowed(my, 0, ul)) //tm.From.LanguageCode
+	ups := fmt.Sprintf("%s %s @%s #%d%s", uc.From.FirstName, uc.From.LastName, uc.From.Username, uc.From.ID, notAllowed(my, 0, ul))
 	bot.AnswerCallbackQuery(&tg.AnswerCallbackQueryParams{CallbackQueryID: update.CallbackQuery.ID, Text: ups + tf(ips.count() == 0, "∅", ip+Data), ShowAlert: !my})
 	if !my {
 		return
 	}
 	if Data == "❎" {
-		// bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(tm.Chat.ID), MessageID: tm.MessageID})
-		bot.DeleteMessage(tu.Delete(tu.ID(tm.Chat.ID), tm.MessageID))
+		bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(tm.GetChat().ID), MessageID: tm.GetMessageID()})
 		return
 	}
-	if Data == "…" { //chats.allowed(uc.From.ID) &&
-		rm := tu.InlineKeyboard(tm.ReplyMarkup.InlineKeyboard[0])
-		if len(tm.ReplyMarkup.InlineKeyboard) == 1 {
+	if Data == "…" {
+		rm := tu.InlineKeyboard(message.ReplyMarkup.InlineKeyboard[0])
+		if len(message.ReplyMarkup.InlineKeyboard) == 1 {
 			if ips.count() == 0 {
 				return
 			}
-			rm = tu.InlineKeyboard(tm.ReplyMarkup.InlineKeyboard[0], tu.InlineKeyboardRow(ikbs[:len(ikbs)-1]...))
+			rm = tu.InlineKeyboard(message.ReplyMarkup.InlineKeyboard[0], tu.InlineKeyboardRow(ikbs[:len(ikbs)-1]...))
 		}
-		bot.EditMessageReplyMarkup(&tg.EditMessageReplyMarkupParams{ChatID: tu.ID(tm.Chat.ID), MessageID: tm.MessageID, ReplyMarkup: rm})
+		bot.EditMessageReplyMarkup(&tg.EditMessageReplyMarkupParams{ChatID: tu.ID(tm.GetChat().ID), MessageID: tm.GetMessageID(), ReplyMarkup: rm})
 		return
 	}
 	if ips.count() == 0 {
@@ -308,7 +322,7 @@ func bhAnyCallbackQueryWithMessage(bot *tg.Bot, update tg.Update) {
 // handler DeleteMessage
 func bhReplyMessageIsMinus(bot *tg.Bot, update tg.Update) {
 	re := update.Message.ReplyToMessage
-	err := bot.DeleteMessage(tu.Delete(tu.ID(re.Chat.ID), re.MessageID))
+	err := bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
 	if err != nil {
 		let.Println(err)
 		bot.EditMessageText(&tg.EditMessageTextParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID, Text: "-"})
@@ -377,15 +391,19 @@ func bhAnyCommand(bot *tg.Bot, update tg.Update) {
 	if chats.allowed(tm.From.ID) && ips.count() > 0 {
 		ikbsf = 0
 	}
-	bot.SendMessage(tu.MessageWithEntities(tu.ID(tm.Chat.ID),
-		mecs[mecsf:]...,
-	).WithReplyToMessageID(tm.MessageID).WithReplyMarkup(tu.InlineKeyboard(tu.InlineKeyboardRow(ikbs[ikbsf:]...))))
+	params := tu.MessageWithEntities(tu.ID(tm.Chat.ID), mecs[mecsf:]...)
+	params.ReplyParameters = &tg.ReplyParameters{MessageID: tm.MessageID}
+	params.ReplyMarkup = tu.InlineKeyboard(tu.InlineKeyboardRow(ikbs[ikbsf:]...))
+	_, err := bot.SendMessage(params)
+	if err != nil {
+		let.Println(err)
+	}
 }
 
 // handler LeftChat
 func bhLeftChat(bot *tg.Bot, update tg.Update) {
 	tm := update.Message
-	bot.SendMessage(tu.MessageWithEntities(tu.ID(tm.Chat.ID),
+	params := tu.MessageWithEntities(tu.ID(tm.Chat.ID),
 		tu.Entity(dic.add(ul,
 			"en:He flew away, but promised to return❗\n    ",
 			"ru:Он улетел, но обещал вернуться❗\n    ",
@@ -397,8 +415,12 @@ func bhLeftChat(bot *tg.Bot, update tg.Update) {
 		tu.Entity(dic.add(ul,
 			"en:Cute...",
 		)).Italic(), tu.Entity("😢"),
-	).WithReplyToMessageID(tm.MessageID))
-
+	)
+	params.ReplyParameters = &tg.ReplyParameters{MessageID: tm.MessageID}
+	_, err := bot.SendMessage(params)
+	if err != nil {
+		let.Println(err)
+	}
 }
 
 // handler NewMember
@@ -409,7 +431,7 @@ func bhNewMember(bot *tg.Bot, update tg.Update) {
 	}
 	for _, nu := range tm.NewChatMembers {
 		ltf.Println(nu.ID)
-		bot.SendMessage(tu.MessageWithEntities(tu.ID(tm.Chat.ID),
+		params := tu.MessageWithEntities(tu.ID(tm.Chat.ID),
 			tu.Entity(dic.add(ul,
 				"en:Hello villagers!",
 				"ru:Здорово, селяне!\n",
@@ -421,7 +443,13 @@ func bhNewMember(bot *tg.Bot, update tg.Update) {
 			tu.Entity(dic.add(ul,
 				"en:The cart is ready!🏓",
 				"ru:Телега готова!🏓",
-			))).WithReplyToMessageID(tm.MessageID))
+			)),
+		)
+		params.ReplyParameters = &tg.ReplyParameters{MessageID: tm.MessageID}
+		_, err := bot.SendMessage(params)
+		if err != nil {
+			let.Println(err)
+		}
 		break
 	}
 }
