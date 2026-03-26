@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"regexp"
 	"strconv"
@@ -23,7 +24,10 @@ const (
 
 var (
 	chats       = NewAAA()
-	done        = make(chan bool, 10)
+	mainCtx     context.Context
+	mainCancel  context.CancelFunc
+	ttCtx       context.Context
+	ttCancel    context.CancelFunc
 	ips         = sCustomer{mcCustomer: mcCustomer{}}
 	bot         *tg.Bot
 	tt          = tth

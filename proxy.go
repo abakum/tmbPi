@@ -37,7 +37,7 @@ func CreateBotWithProxy(token string) (*tg.Bot, error) {
 	apiURL := os.Getenv("TMB_URL")
 
 	// Собираем опции для создания бота
-	options := []tg.BotOption{tg.WithLogger(tg.Logger(Logger{}))}
+	options := []tg.BotOption{tg.WithLogger(&Logger{})}
 
 	// Если API URL указан, добавляем опцию
 	if apiURL != "" {

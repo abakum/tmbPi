@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -17,20 +18,22 @@ import (
 )
 
 func main() {
+	mainCtx, mainCancel = context.WithCancel(context.Background())
+	ttCtx, ttCancel = context.WithCancel(mainCtx)
+
 	var (
 		err error
 	)
 	defer closer.Close()
+
 	closer.Bind(func() {
 		if err != nil {
 			let.Println(err)
 			SendError(bot, err)
 			defer os.Exit(1)
 		}
-		PrintOk("stopH", stopH(bot, bh))
-		DeleteWebhook(bot)
-		ltf.Println("closer done <- true")
-		done <- true
+		ltf.Println("closer mainCancel()")
+		mainCancel()
 		ltf.Println("closer ips.close")
 		ips.close()
 		wg.Wait()
@@ -71,7 +74,7 @@ func main() {
 		return
 	}
 
-	me, err = bot.GetMe()
+	me, err = bot.GetMe(mainCtx)
 	if err != nil {
 		err = srcError(err)
 		return
@@ -80,7 +83,7 @@ func main() {
 	// bot.DeleteMyCommands(nil)
 	tacker = time.NewTicker(tt)
 	defer tacker.Stop()
-	bh, err := startH(bot)
+	bh, err := startH(ttCtx)
 	SendError(bot, fmt.Errorf("startH %v", err))
 	if err != nil {
 		return
@@ -99,17 +102,17 @@ func main() {
 		defer tacker.Stop()
 		for {
 			select {
-			case <-done:
+			case <-mainCtx.Done():
 				ltf.Println("Ticker done")
-				done <- true
 				return
 			case t := <-ticker.C:
 				ltf.Println("Tick at", t)
 				ips.update(customer{})
 			case t := <-tacker.C:
 				ltf.Println("Tack at", t)
-				PrintOk("stopH", stopH(bot, bh))
-				bh, err = startH(bot)
+				SendError(bot, fmt.Errorf("stopH %v", stopH(ttCancel, bh)))
+				ttCtx, ttCancel = context.WithCancel(mainCtx)
+				bh, err = startH(ttCtx)
 				SendError(bot, fmt.Errorf("startH %v", err))
 				if err != nil {
 					letf.Println(err)
@@ -127,35 +130,23 @@ func main() {
 }
 
 // stop handler, webhook, polling
-func stopH(bot *tg.Bot, bh *th.BotHandler) (err error) {
-	if bot != nil {
-		if bot.IsRunningWebhook() {
-			ltf.Println("StopWebhook")
-			err = srcError(bot.StopWebhook())
-		} else if bot.IsRunningLongPolling() {
-			ltf.Println("StopLongPolling")
-			bot.StopLongPolling()
-		}
+func stopH(cancel context.CancelFunc, bh *th.BotHandler) (err error) {
+
+	if cancel != nil {
+		ltf.Println("StopLongPolling")
+		cancel()
 	}
 	if bh != nil {
 		ltf.Println("bh.Stop")
-		bh.Stop()
+		err = srcError(bh.Stop())
 	}
 	return
 }
 
-func DeleteWebhook(bot *tg.Bot) {
-	if bot != nil {
-		PrintOk("DeleteWebhook", bot.DeleteWebhook(&tg.DeleteWebhookParams{
-			DropPendingUpdates: false,
-		}))
-	}
-}
-
 // start handler and webhook or polling
-func startH(bot *tg.Bot) (*th.BotHandler, error) {
+func startH(ctx context.Context) (*th.BotHandler, error) {
 	// updates, err = bot.UpdatesViaLongPolling(nil)
-	updates, err := bot.UpdatesViaLongPolling(&tg.GetUpdatesParams{Timeout: int(refresh.Seconds())})
+	updates, err := bot.UpdatesViaLongPolling(ctx, &tg.GetUpdatesParams{Timeout: int(refresh.Seconds())})
 	if err != nil {
 		return nil, srcError(err)
 	}
@@ -186,10 +177,11 @@ func startH(bot *tg.Bot) (*th.BotHandler, error) {
 }
 
 // handler IP
-func bhAnyWithMatch(bot *tg.Bot, update tg.Update) {
+func bhAnyWithMatch(ctx *th.Context, update tg.Update) error {
+	bot := ctx.Bot()
 	tc, ctm := tmtc(update)
 	if ctm == nil {
-		return
+		return nil
 	}
 	ok, ups := allowed(ul, ctm.From.ID, ctm.Chat.ID)
 	keys, _ := set(reIP.FindAllString(tc, -1))
@@ -215,23 +207,26 @@ func bhAnyWithMatch(bot *tg.Bot, update tg.Update) {
 			)
 			params.ReplyParameters = &tg.ReplyParameters{MessageID: ctm.MessageID}
 			params.ReplyMarkup = tu.InlineKeyboard(tu.InlineKeyboardRow(ikbs[ikbsf:]...))
-			_, err := bot.SendMessage(params)
+			_, err := bot.SendMessage(mainCtx, params)
 			if err != nil {
 				let.Println(err)
 			}
+
 		}
-		return
+		return nil
 	}
+	return nil
 }
 
 // handler EasterEgg
-func bhEasterEgg(bot *tg.Bot, update tg.Update) {
+func bhEasterEgg(ctx *th.Context, update tg.Update) error {
+	bot := ctx.Bot()
 	tc, ctm := tmtc(update)
 	if ctm == nil {
-		return
+		return nil
 	}
 	if ctm.Chat.Type != "private" {
-		return
+		return nil
 	}
 	keys, _ := set(reYYYYMMDD.FindAllString(tc, -1))
 	ltf.Println("bh.Handle anyWithYYYYMMDD", keys)
@@ -258,26 +253,29 @@ func bhEasterEgg(bot *tg.Bot, update tg.Update) {
 			}
 			params := tu.MessageWithEntities(tu.ID(ctm.Chat.ID), entitys...)
 			params.ReplyParameters = &tg.ReplyParameters{MessageID: ctm.MessageID}
-			_, err := bot.SendMessage(params)
+			_, err := bot.SendMessage(mainCtx, params)
 			if err != nil {
 				let.Println(err)
 			}
+
 		}
 	}
+	return nil
 }
 
 // handler Callback
-func bhAnyCallbackQueryWithMessage(bot *tg.Bot, update tg.Update) {
+func bhAnyCallbackQueryWithMessage(ctx *th.Context, update tg.Update) error {
+	bot := ctx.Bot()
 	uc := update.CallbackQuery
 	if uc == nil {
-		return
+		return nil
 	}
 	tm := uc.Message
 	if tm == nil {
-		return
+		return nil
 	}
 	if !tm.IsAccessible() {
-		return
+		return nil
 	}
 	message := tm.(*tg.Message)
 	my := true
@@ -290,43 +288,47 @@ func bhAnyCallbackQueryWithMessage(bot *tg.Bot, update tg.Update) {
 		ip = ""
 	}
 	ups := fmt.Sprintf("%s %s @%s #%d%s", uc.From.FirstName, uc.From.LastName, uc.From.Username, uc.From.ID, notAllowed(my, 0, ul))
-	bot.AnswerCallbackQuery(&tg.AnswerCallbackQueryParams{CallbackQueryID: update.CallbackQuery.ID, Text: ups + tf(ips.count() == 0, "∅", ip+Data), ShowAlert: !my})
+	bot.AnswerCallbackQuery(mainCtx, &tg.AnswerCallbackQueryParams{CallbackQueryID: update.CallbackQuery.ID, Text: ups + tf(ips.count() == 0, "∅", ip+Data), ShowAlert: !my})
 	if !my {
-		return
+		return nil
 	}
 	if Data == "❎" {
-		bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(tm.GetChat().ID), MessageID: tm.GetMessageID()})
-		return
+		bot.DeleteMessage(mainCtx, &tg.DeleteMessageParams{ChatID: tu.ID(tm.GetChat().ID), MessageID: tm.GetMessageID()})
+		return nil
 	}
 	if Data == "…" {
 		rm := tu.InlineKeyboard(message.ReplyMarkup.InlineKeyboard[0])
 		if len(message.ReplyMarkup.InlineKeyboard) == 1 {
 			if ips.count() == 0 {
-				return
+				return nil
 			}
 			rm = tu.InlineKeyboard(message.ReplyMarkup.InlineKeyboard[0], tu.InlineKeyboardRow(ikbs[:len(ikbs)-1]...))
 		}
-		bot.EditMessageReplyMarkup(&tg.EditMessageReplyMarkupParams{ChatID: tu.ID(tm.GetChat().ID), MessageID: tm.GetMessageID(), ReplyMarkup: rm})
-		return
+		bot.EditMessageReplyMarkup(mainCtx, &tg.EditMessageReplyMarkupParams{ChatID: tu.ID(tm.GetChat().ID), MessageID: tm.GetMessageID(), ReplyMarkup: rm})
+		return nil
 	}
+
 	if ips.count() == 0 {
-		return
+		return nil
 	}
 	if strings.HasPrefix(Data, "…") {
 		ips.update(customer{Cmd: strings.TrimPrefix(Data, "…")})
 	} else {
 		ips.write(ip, customer{Cmd: Data})
 	}
+	return nil
 }
 
 // handler DeleteMessage
-func bhReplyMessageIsMinus(bot *tg.Bot, update tg.Update) {
+func bhReplyMessageIsMinus(ctx *th.Context, update tg.Update) error {
+	bot := ctx.Bot()
 	re := update.Message.ReplyToMessage
-	err := bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
+	err := bot.DeleteMessage(mainCtx, &tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
 	if err != nil {
 		let.Println(err)
-		bot.EditMessageText(&tg.EditMessageTextParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID, Text: "-"})
+		bot.EditMessageText(mainCtx, &tg.EditMessageTextParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID, Text: "-"})
 	}
+	return nil
 }
 
 // send t.C then reset t
@@ -339,10 +341,11 @@ func restart(t *time.Ticker, d time.Duration) {
 }
 
 // handler Command
-func bhAnyCommand(bot *tg.Bot, update tg.Update) {
+func bhAnyCommand(ctx *th.Context, update tg.Update) error {
+	bot := ctx.Bot()
 	tm := update.Message
 	if tm == nil {
-		return
+		return nil
 	}
 	if tm.Chat.Type == "private" {
 		p := "/start "
@@ -353,11 +356,11 @@ func bhAnyCommand(bot *tg.Bot, update tg.Update) {
 				tm.Text = p + string(ds)
 				switch {
 				case reYYYYMMDD.MatchString(tm.Text):
-					bhEasterEgg(bot, update)
+					_ = bhEasterEgg(ctx, update)
 				case reIP.MatchString(tm.Text):
-					bhAnyWithMatch(bot, update)
+					_ = bhAnyWithMatch(ctx, update)
 				}
-				return
+				return nil
 			}
 		}
 		// For owner as first chatID in args
@@ -365,12 +368,12 @@ func bhAnyCommand(bot *tg.Bot, update tg.Update) {
 			p = "/restart"
 			if strings.HasPrefix(tm.Text, p) {
 				restart(tacker, tt)
-				return
+				return nil
 			}
 			p = "/stop"
 			if strings.HasPrefix(tm.Text, p) {
 				closer.Close()
-				return
+				return nil
 			}
 		}
 	}
@@ -394,14 +397,16 @@ func bhAnyCommand(bot *tg.Bot, update tg.Update) {
 	params := tu.MessageWithEntities(tu.ID(tm.Chat.ID), mecs[mecsf:]...)
 	params.ReplyParameters = &tg.ReplyParameters{MessageID: tm.MessageID}
 	params.ReplyMarkup = tu.InlineKeyboard(tu.InlineKeyboardRow(ikbs[ikbsf:]...))
-	_, err := bot.SendMessage(params)
+	_, err := bot.SendMessage(mainCtx, params)
 	if err != nil {
 		let.Println(err)
 	}
+	return nil
 }
 
 // handler LeftChat
-func bhLeftChat(bot *tg.Bot, update tg.Update) {
+func bhLeftChat(ctx *th.Context, update tg.Update) error {
+	bot := ctx.Bot()
 	tm := update.Message
 	params := tu.MessageWithEntities(tu.ID(tm.Chat.ID),
 		tu.Entity(dic.add(ul,
@@ -417,17 +422,19 @@ func bhLeftChat(bot *tg.Bot, update tg.Update) {
 		)).Italic(), tu.Entity("😢"),
 	)
 	params.ReplyParameters = &tg.ReplyParameters{MessageID: tm.MessageID}
-	_, err := bot.SendMessage(params)
+	_, err := bot.SendMessage(mainCtx, params)
 	if err != nil {
 		let.Println(err)
 	}
+	return nil
 }
 
 // handler NewMember
-func bhNewMember(bot *tg.Bot, update tg.Update) {
+func bhNewMember(ctx *th.Context, update tg.Update) error {
+	bot := ctx.Bot()
 	tm := update.Message
 	if !chats.allowed(tm.Chat.ID) {
-		return
+		return nil
 	}
 	for _, nu := range tm.NewChatMembers {
 		ltf.Println(nu.ID)
@@ -437,7 +444,7 @@ func bhNewMember(bot *tg.Bot, update tg.Update) {
 				"ru:Здорово, селяне!\n",
 			)),
 			tu.Entity(dic.add(ul,
-				"en:Is the carriage ready?\n",
+				"en:Is carriage ready?\n",
 				"ru:Карета готова?\n",
 			)).Strikethrough(),
 			tu.Entity(dic.add(ul,
@@ -446,12 +453,13 @@ func bhNewMember(bot *tg.Bot, update tg.Update) {
 			)),
 		)
 		params.ReplyParameters = &tg.ReplyParameters{MessageID: tm.MessageID}
-		_, err := bot.SendMessage(params)
+		_, err := bot.SendMessage(mainCtx, params)
 		if err != nil {
 			let.Println(err)
 		}
 		break
 	}
+	return nil
 }
 
 // is key in args

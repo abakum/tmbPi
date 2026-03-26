@@ -31,8 +31,7 @@ func worker(ip string, ch cCustomer) {
 	defer ips.del(ip, false)
 	for {
 		select {
-		case <-done:
-			done <- true //done other worker
+		case <-mainCtx.Done():
 			for i, cu := range cus {
 				cu.Tm = &tg.Message{MessageID: cu.Tm.MessageID, From: &tg.User{ID: cu.Tm.From.ID}, Chat: tg.Chat{ID: cu.Tm.Chat.ID}}
 				cu.Cmd = ip
@@ -67,7 +66,7 @@ func worker(ip string, ch cCustomer) {
 								ltf.Println("bot.DeleteMessage", cu)
 								re := cu.Reply
 								if re != nil {
-									bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
+									bot.DeleteMessage(mainCtx, &tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
 								}
 							}
 							return
@@ -102,7 +101,7 @@ func worker(ip string, ch cCustomer) {
 				ltf.Println(i, fcRfRc(cu.Tm), ip, fcRfRc(re), status, statusOld)
 				if re == nil || status != statusOld {
 					if re != nil {
-						bot.DeleteMessage(&tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
+						bot.DeleteMessage(mainCtx, &tg.DeleteMessageParams{ChatID: tu.ID(re.Chat.ID), MessageID: re.MessageID})
 					}
 					ikbsf = 0
 					if !chats.allowed(tf(cu.Tm.Chat.Type == "private", cu.Tm.From.ID, cu.Tm.Chat.ID)) {
@@ -115,7 +114,7 @@ func worker(ip string, ch cCustomer) {
 					)
 					params.ReplyParameters = &tg.ReplyParameters{MessageID: cu.Tm.MessageID}
 					params.ReplyMarkup = tu.InlineKeyboard(tu.InlineKeyboardRow(ikbs[ikbsf:]...))
-					cus[i].Reply, err = bot.SendMessage(params)
+					cus[i].Reply, err = bot.SendMessage(mainCtx, params)
 					if err != nil {
 						letf.Println("delete", ip)
 						ips.del(ip, false)
